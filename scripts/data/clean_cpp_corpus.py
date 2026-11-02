@@ -4,7 +4,7 @@ import argparse
 import re
 from pathlib import Path
 
-from cpp_transformer.core.paths import PROCESSED_DATA_DIR
+from latent_forge.core.paths import PROCESSED_DATA_DIR
 
 
 def parse_args() -> argparse.Namespace:

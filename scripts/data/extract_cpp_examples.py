@@ -3,7 +3,7 @@ import json
 import re
 from pathlib import Path
 
-from cpp_transformer.core.paths import PROCESSED_DATA_DIR, RAW_DATA_DIR
+from latent_forge.core.paths import PROCESSED_DATA_DIR, RAW_DATA_DIR
 
 
 DEFAULT_INPUT_FILE = RAW_DATA_DIR / "code_alpaca_20k.json"

@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from cpp_transformer.core.paths import PROCESSED_DATA_DIR
+from latent_forge.core.paths import PROCESSED_DATA_DIR
 
 
 INPUT_FILE = PROCESSED_DATA_DIR / "cleaned_c++_data.json"

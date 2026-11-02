@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from cpp_transformer.core.paths import PROCESSED_DATA_DIR, THIRD_PARTY_DIR
+from latent_forge.core.paths import PROCESSED_DATA_DIR, THIRD_PARTY_DIR
 
 
 CPP_EXTENSIONS = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp"}
