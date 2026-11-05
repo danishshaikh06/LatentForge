@@ -14,7 +14,6 @@ from latent_forge.models.attention.rope import RotaryEmbedding
 from latent_forge.configs.mla import MLAConfig
 from latent_forge.models.attention.mla import MultiHeadLatentAttention
 
-
 class InputEmbedding(nn.Module):
 
     def __init__(self, vocab_size: int, d_model: int):
@@ -63,7 +62,39 @@ class PositionalEncoding(nn.Module):
         ]
 
         return self.dropout(x) 
- 
+
+NormType = Literal["layernorm", "rmsnorm"]
+FFNType = Literal["relu", "swiglu"]
+
+def create_norm(
+    d_model: int,
+    norm_type: NormType,
+    eps: float = 1e-6,
+) -> nn.Module:
+    """
+    Construct a decoder normalization layer.
+
+    LayerNorm:
+        Preserves the existing custom implementation.
+
+    RMSNorm:
+        Uses PyTorch's native implementation.
+    """
+    if norm_type == "layernorm":
+        return LayerNorm(
+            d_model,
+            esp=eps,
+        )
+
+    if norm_type == "rmsnorm":
+        return nn.RMSNorm(
+            d_model,
+            eps=eps,
+        )
+
+    raise ValueError(
+        f"Unsupported normalization: {norm_type}"
+    ) 
 
 class LayerNorm(nn.Module):
     def __init__(self, d_model: int, esp: float = 1e-6) -> None :
@@ -89,11 +120,106 @@ class FeedForward(nn.Module):
         return self.linear_2(self.dropout(torch.relu(self.linear_1(x)))) # will it returns as [d_model, d_model]? Yes, because the first linear layer transforms from d_model to d_ff, and the second linear layer transforms back from d_ff to d_model. 
 
 
-class ResidualConnection(nn.Module): 
-    def __init__(self, d_model: int, dropout: float) -> None:
-        super().__init__()  
+class SwiGLUFeedForward(nn.Module):
+    """
+    SwiGLU feed-forward network.
+
+    Architecture:
+        gate = SiLU(W_gate(x))
+        up   = W_up(x)
+        out  = W_down(gate * up)
+
+    Input:
+        (B, T, d_model)
+
+    Output:
+        (B, T, d_model)
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        d_ff: int,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+
+        if (
+            isinstance(d_model, bool)
+            or not isinstance(d_model, int)
+            or d_model <= 0
+            or isinstance(d_ff, bool)
+            or not isinstance(d_ff, int)
+            or d_ff <= 0
+        ):
+            raise ValueError(
+                "d_model and d_ff must be positive integers"
+            )
+
+        if not 0.0 <= dropout < 1.0:
+            raise ValueError(
+                "dropout must be in [0, 1)"
+            )
+
+        self.d_model = d_model
+        self.d_ff = d_ff
+
+        self.gate_proj = nn.Linear(
+            d_model,
+            d_ff,
+            bias=False,
+        )
+
+        self.up_proj = nn.Linear(
+            d_model,
+            d_ff,
+            bias=False,
+        )
+
+        self.down_proj = nn.Linear(
+            d_ff,
+            d_model,
+            bias=False,
+        )
+
         self.dropout = nn.Dropout(dropout)
-        self.norm = LayerNorm(d_model) 
+
+    def forward(
+        self,
+        x: torch.Tensor,
+    ) -> torch.Tensor:
+
+        gate = torch.nn.functional.silu(
+            self.gate_proj(x)
+        )
+
+        up = self.up_proj(x)
+
+        hidden_states = gate * up
+
+        hidden_states = self.dropout(
+            hidden_states
+        )
+
+        return self.down_proj(
+            hidden_states
+        )
+
+class ResidualConnection(nn.Module): 
+    def __init__(
+        self,
+        d_model: int,
+        dropout: float,
+        norm_type: NormType = "layernorm",
+    ) -> None:
+        super().__init__()
+
+        self.dropout = nn.Dropout(dropout)
+
+        self.norm = create_norm(
+            d_model=d_model,
+            norm_type=norm_type,
+        )
 
     def forward(self, x, sublayer):
        return x + self.dropout(sublayer(self.norm(x)))
@@ -105,27 +231,28 @@ class DecoderBlock(nn.Module):
 
     Supports legacy MHA and the new configurable GQA module.
     """
-
     def __init__(
         self,
         d_model: int,
         self_attention_block: nn.Module,
         feed_forward_block: nn.Module,
         dropout: float,
+        norm_type: NormType = "layernorm",
     ) -> None:
         super().__init__()
 
         self.self_attention_block = self_attention_block
         self.feed_forward_block = feed_forward_block
 
-        self.residual_connections = nn.ModuleList(
-            [
-                ResidualConnection(d_model, dropout)
-                for _ in range(2)
-            ]
-        )
+        self.residual_connections = nn.ModuleList([
+            ResidualConnection(
+                d_model,
+                dropout,
+                norm_type=norm_type,
+            )
+            for _ in range(2)
+        ])
 
-    
     def forward(
         self,
         x: torch.Tensor,
@@ -204,18 +331,21 @@ class Decoder(nn.Module):
     One request-owned cache object is shared across
     layers, but every layer updates a separate cache entry.
     """
-
     def __init__(
         self,
         layers: nn.ModuleList,
         features: int,
+        norm_type: NormType = "layernorm",
     ) -> None:
         super().__init__()
 
         self.layers = layers
-        self.norm = LayerNorm(features)
 
-    
+        self.norm = create_norm(
+            d_model=features,
+            norm_type=norm_type,
+        )
+
     def forward(
         self,
         x: torch.Tensor,
@@ -460,8 +590,18 @@ def build_transformer(
     rotary_dim: int | None = None,
     attention_type: Literal["mha", "gqa", "mla"] | None = None,
     mla_config: MLAConfig | None = None,
+    norm_type: NormType = "layernorm",
+    ffn_type: FFNType = "relu",
 ) -> Transformer:
+    if norm_type not in ("layernorm", "rmsnorm"):
+        raise ValueError(
+            "norm_type must be 'layernorm' or 'rmsnorm'"
+        )
 
+    if ffn_type not in ("relu", "swiglu"):
+        raise ValueError(
+            "ffn_type must be 'relu' or 'swiglu'"
+        )
     if N <= 0:
         raise ValueError("N must be positive")
 
@@ -597,26 +737,35 @@ def build_transformer(
                 dropout,
             )
 
-        ffn = FeedForward(
-            d_model,
-            d_ff,
-            dropout,
-        )
+        if ffn_type == "swiglu":
+            ffn = SwiGLUFeedForward(
+                d_model=d_model,
+                d_ff=d_ff,
+                dropout=dropout,
+            )
+        else:
+            ffn = FeedForward(
+                d_model=d_model,
+                d_ff=d_ff,
+                dropout=dropout,
+            )
 
         decoder_blocks.append(
             DecoderBlock(
-                d_model,
-                attention,
-                ffn,
-                dropout,
+                d_model=d_model,
+                self_attention_block=attention,
+                feed_forward_block=ffn,
+                dropout=dropout,
+                norm_type=norm_type,
             )
         )
 
     decoder = Decoder(
-        nn.ModuleList(decoder_blocks),
-        d_model,
+        layers=nn.ModuleList(decoder_blocks),
+        features=d_model,
+        norm_type=norm_type,
     )
-
+    
     projection_layer = ProjectionLayer(
         d_model,
         tgt_vocab_size,

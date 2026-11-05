@@ -47,11 +47,11 @@
     "attention_backend": "sdpa",
     "attention_type": "gqa",
     "mla": {
-      "q_lora_rank": 64,
-      "kv_lora_rank": 64,
-      "qk_nope_head_dim": 32,
+      "q_lora_rank": 96,
+      "kv_lora_rank": 96,
+      "qk_nope_head_dim": 48,
       "qk_rope_head_dim": 16,
-      "v_head_dim": 32,
+      "v_head_dim": 48,
       "rope_theta": 10000.0,
       "attention_dropout": 0.0,
       "implementation": "naive"

@@ -122,8 +122,6 @@ def load_runtime(
 
     model.load_state_dict(state_dict, strict=True)
     model.eval()
-    model.load_state_dict(state_dict)
-    model.eval()
 
     tokenizer = load_tokenizer(tokenizer_path)
 
