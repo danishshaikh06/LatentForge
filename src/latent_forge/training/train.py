@@ -267,6 +267,12 @@ def main():
             if attention_type == "mla"
             else None
         ),
+        "norm_type": runtime_config.get(
+            "norm_type", "layernorm"
+        ),
+        "ffn_type": runtime_config.get(
+            "ffn_type", "relu"
+        ),
     }
 
     with training_config_path.open(

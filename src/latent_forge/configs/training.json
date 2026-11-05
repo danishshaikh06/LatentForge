@@ -26,7 +26,9 @@
       "rope_theta": 10000.0,
       "attention_dropout": 0.0,
       "implementation": "naive"
-    }
+    },
+    "norm_type": "rmsnorm",
+    "ffn_type": "swiglu"
   },
   "cuda": {
     "seq_len": 256,
@@ -55,7 +57,9 @@
       "rope_theta": 10000.0,
       "attention_dropout": 0.0,
       "implementation": "naive"
-    }
+    },
+    "norm_type": "rmsnorm",
+    "ffn_type": "swiglu"
   },
   "special_tokens": {"pad_id": 3000, "bos_id": 3001, "eos_id": 3002}
 }

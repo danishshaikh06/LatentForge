@@ -765,7 +765,7 @@ def build_transformer(
         features=d_model,
         norm_type=norm_type,
     )
-    
+
     projection_layer = ProjectionLayer(
         d_model,
         tgt_vocab_size,
@@ -859,4 +859,10 @@ def build_transformer_from_config(
         rotary_dim=config.get("rotary_dim"),
         attention_type=attention_type,
         mla_config=mla_config,
+        norm_type=config.get(
+            "norm_type", "layernorm"
+        ),
+        ffn_type=config.get(
+            "ffn_type", "relu"
+        ),
     )
