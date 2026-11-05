@@ -15,7 +15,18 @@
     "position_encoding": "rope",
     "rope_theta": 10000.0,
     "rotary_dim": null,
-    "attention_backend": "sdpa"
+    "attention_backend": "sdpa",
+    "attention_type": "gqa",
+    "mla": {
+      "q_lora_rank": 64,
+      "kv_lora_rank": 64,
+      "qk_nope_head_dim": 32,
+      "qk_rope_head_dim": 16,
+      "v_head_dim": 32,
+      "rope_theta": 10000.0,
+      "attention_dropout": 0.0,
+      "implementation": "naive"
+    }
   },
   "cuda": {
     "seq_len": 256,
@@ -33,7 +44,18 @@
     "position_encoding": "rope",
     "rope_theta": 10000.0,
     "rotary_dim": null,
-    "attention_backend": "sdpa"
+    "attention_backend": "sdpa",
+    "attention_type": "gqa",
+    "mla": {
+      "q_lora_rank": 64,
+      "kv_lora_rank": 64,
+      "qk_nope_head_dim": 32,
+      "qk_rope_head_dim": 16,
+      "v_head_dim": 32,
+      "rope_theta": 10000.0,
+      "attention_dropout": 0.0,
+      "implementation": "naive"
+    }
   },
   "special_tokens": {"pad_id": 3000, "bos_id": 3001, "eos_id": 3002}
 }

@@ -5,8 +5,10 @@ from pathlib import Path
 import torch
 
 from latent_forge.core.paths import BEST_MODEL_FILE, TOKENIZER_FILE, TRAINING_CONFIG_FILE
-from latent_forge.models.decoder import build_transformer
 from latent_forge.tokenization.bpe_tokenizer import BPETokenizer
+from latent_forge.models.decoder import (
+    build_transformer_from_config,
+)
 
 
 SYSTEM_PROMPT = (
@@ -107,17 +109,19 @@ def load_runtime(
     config = load_training_config(config_path)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = build_transformer(
+    model = build_transformer_from_config(
+        config,
         tgt_vocab_size=config["vocab_size"],
-        tgt_seq_len=config["seq_len"],
-        d_model=config["d_model"],
-        N=config["layers"],
-        h=config["heads"],
-        dropout=config["dropout"],
-        d_ff=config["d_ff"],
     ).to(device)
 
-    state_dict = torch.load(checkpoint_path, map_location=device)
+    state_dict = torch.load(
+        checkpoint_path,
+        map_location=device,
+        weights_only=True,
+    )
+
+    model.load_state_dict(state_dict, strict=True)
+    model.eval()
     model.load_state_dict(state_dict)
     model.eval()
 

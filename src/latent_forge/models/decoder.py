@@ -641,3 +641,73 @@ def build_transformer(
             nn.init.xavier_uniform_(parameter)
 
     return transformer
+
+def build_transformer_from_config(
+    config: Mapping[str, Any],
+    *,
+    tgt_vocab_size: int,
+) -> Transformer:
+    """
+    Reconstruct a model from training metadata.
+
+    Supports older configs that predate attention_type.
+    """
+    attention_type = config.get("attention_type")
+
+    if attention_type is None:
+        attention_type = (
+            "gqa"
+            if config.get("kv_heads") is not None
+            else "mha"
+        )
+
+    mla_config = None
+
+    if attention_type == "mla":
+        raw = config.get("mla")
+
+        if not isinstance(raw, Mapping):
+            raise ValueError(
+                "MLA checkpoint requires an 'mla' config object"
+            )
+
+        mla_config = MLAConfig(
+            hidden_size=config["d_model"],
+            num_attention_heads=config["heads"],
+            kv_lora_rank=raw["kv_lora_rank"],
+            qk_nope_head_dim=raw["qk_nope_head_dim"],
+            qk_rope_head_dim=raw["qk_rope_head_dim"],
+            v_head_dim=raw["v_head_dim"],
+            q_lora_rank=raw.get("q_lora_rank"),
+            rope_theta=raw.get(
+                "rope_theta",
+                config.get("rope_theta", 10000.0),
+            ),
+            attention_dropout=raw.get(
+                "attention_dropout", 0.0
+            ),
+            implementation=raw.get(
+                "implementation", "naive"
+            ),
+        )
+
+    return build_transformer(
+        tgt_vocab_size=tgt_vocab_size,
+        tgt_seq_len=config["seq_len"],
+        d_model=config["d_model"],
+        N=config["layers"],
+        h=config["heads"],
+        dropout=config["dropout"],
+        d_ff=config["d_ff"],
+        kv_heads=config.get("kv_heads"),
+        attention_backend=config.get(
+            "attention_backend", "sdpa"
+        ),
+        position_encoding=config.get(
+            "position_encoding", "sinusoidal"
+        ),
+        rope_theta=config.get("rope_theta", 10000.0),
+        rotary_dim=config.get("rotary_dim"),
+        attention_type=attention_type,
+        mla_config=mla_config,
+    )

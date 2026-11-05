@@ -17,7 +17,9 @@ from latent_forge.core.paths import (
 )
 from latent_forge.models.decoder import build_transformer
 from latent_forge.training.inference import generate_completion, load_tokenizer
-
+from latent_forge.models.decoder import (
+    build_transformer_from_config,
+)
 
 with (CONFIGS_DIR / "training.json").open(encoding="utf-8") as config_file:
     TRAINING_PROFILES = json.load(config_file)
@@ -76,11 +78,39 @@ def parse_args():
         default=None,
         help="Override the default epoch count.",
     )
+    parser.add_argument(
+        "--attention-type",
+        choices=("mha", "gqa", "mla"),
+        default=None,
+        help="Override the configured attention architecture",
+    )
     return parser.parse_args()
 
 
 def build_runtime_config(args):
     runtime_config = dict(TRAINING_CONFIG)
+
+    if args.attention_type is not None:
+        runtime_config["attention_type"] = args.attention_type
+
+        if args.attention_type == "mla":
+            runtime_config["kv_heads"] = None
+            runtime_config["position_encoding"] = "rope"
+
+            if "mla" not in runtime_config:
+                raise ValueError(
+                    "MLA configuration is missing"
+                )
+
+    elif args.attention_type == "mha":
+        runtime_config["kv_heads"] = None
+        runtime_config["position_encoding"] = "sinusoidal"
+
+    elif args.attention_type == "gqa":
+        if runtime_config.get("kv_heads") is None:
+            raise ValueError(
+                "GQA requires kv_heads in training.json"
+            )
 
     if args.epochs is not None:
         runtime_config["epochs"] = args.epochs
@@ -164,7 +194,7 @@ def main():
     accum_steps = runtime_config["accum_steps"]
     sample_every_epochs = runtime_config["sample_every_epochs"]
 
-    artifacts_dir = ensure_artifacts_dir()
+    artifacts_root = ensure_artifacts_dir()
 
     pad_id = SPECIAL_TOKENS["pad_id"]
     bos_id = SPECIAL_TOKENS["bos_id"]
@@ -180,6 +210,24 @@ def main():
     vocab_size = max(max_token_id + 1, eos_id + 1)
 
     assert pad_id < vocab_size, "PAD_ID must be inside vocab range!"
+
+    attention_type = runtime_config.get("attention_type")
+
+    if attention_type is None:
+        attention_type = (
+            "gqa"
+            if runtime_config.get("kv_heads") is not None
+            else "mha"
+        )
+
+    artifacts_dir = artifacts_root / attention_type
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    training_config_path = (
+        artifacts_dir / "training_config.json"
+    )
+
+    best_model_path = artifacts_dir / "best_model.pt"
 
     training_metadata = {
         "seq_len": seq_len,
@@ -203,9 +251,27 @@ def main():
         "max_train_tokens": runtime_config["max_train_tokens"],
         "max_steps_per_epoch": runtime_config["max_steps_per_epoch"],
         "sample_every_epochs": sample_every_epochs,
+        "attention_type": attention_type,
+        "attention_backend": runtime_config.get(
+            "attention_backend", "sdpa"
+        ),
+        "position_encoding": runtime_config.get(
+            "position_encoding", "sinusoidal"
+        ),
+        "rope_theta": runtime_config.get(
+            "rope_theta", 10000.0
+        ),
+        "rotary_dim": runtime_config.get("rotary_dim"),
+        "mla": (
+            runtime_config.get("mla")
+            if attention_type == "mla"
+            else None
+        ),
     }
 
-    with open(TRAINING_CONFIG_FILE, "w", encoding="utf-8") as f:
+    with training_config_path.open(
+        "w", encoding="utf-8"
+    ) as f:
         json.dump(training_metadata, f, indent=2)
 
     print("VOCAB_SIZE:", vocab_size)
@@ -235,15 +301,9 @@ def main():
         pin_memory=AMP_ENABLED,
     )
 
-    model = build_transformer(
+    model = build_transformer_from_config(
+        training_metadata,
         tgt_vocab_size=vocab_size,
-        tgt_seq_len=seq_len,
-        d_model=runtime_config["d_model"],
-        N=runtime_config["layers"],
-        h=runtime_config["heads"],
-        dropout=runtime_config["dropout"],
-        d_ff=runtime_config["d_ff"],
-        kv_heads=runtime_config.get("kv_heads"),
     ).to(DEVICE)
 
     print("Model parameters:", sum(p.numel() for p in model.parameters()))
@@ -360,7 +420,10 @@ def main():
             print(f"Best model saved to {BEST_MODEL_FILE}")
 
         checkpoint_path = artifacts_dir / f"model_epoch_{epoch + 1}.pt"
-        torch.save(model.state_dict(), checkpoint_path)
+        torch.save(
+            model.state_dict(),
+            best_model_path,
+        )
         print(f"Checkpoint saved to {checkpoint_path}")
 
         if (epoch + 1) % sample_every_epochs == 0:

@@ -43,3 +43,5 @@ name = "pytorch"
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
+[tool.setuptools.package-data]
+"latent_forge.configs" = ["*.json"]
