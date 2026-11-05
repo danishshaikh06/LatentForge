@@ -28,8 +28,46 @@ class MultiHeadLatentAttention(nn.Module):
 
     `past_key_values` is request-owned, mutated in place, and never placed in
     the module's parameters or persistent buffers.
-    """
 
+    MLA TERMINOLOGY REFERENCE
+    =========================
+
+    The following notation maps the implementation's variable and
+    module names to the mathematical terminology used in DeepSeek MLA.
+
+    Tensor terminology
+    ------------------
+
+    Implementation name    MLA notation    Meaning
+    ---------------------------------------------------------------
+    hidden_states           x               Input representations
+    q_nope                  q_C             Query content component
+    q_rot                   q_R             Query RoPE component
+    latent                  c_KV            Compressed KV latent
+    k_rot                   k_R             Shared RoPE key component
+    k_nope                  k_C             Key content component
+    values                  v               Value representations
+
+    Projection terminology
+    ----------------------
+
+    Implementation name    MLA notation    Meaning
+    ---------------------------------------------------------------
+    q_a_proj                W_DQ            Query down-projection
+    q_b_proj                W_UQ            Query up-projection
+    kv_a_proj               W_DKV + W_KR    KV down-projection and
+                                            shared positional-key
+                                            projection
+    kv_b_proj               W_UK + W_UV     Key and value up-projections
+    o_proj                  W_O             Output projection
+
+    C = Content component (without RoPE)
+    R = Rotary positional component
+    D = Down-projection
+    U = Up-projection
+    KV = Key-Value
+    O = Output projection
+    """
     def __init__(self, config: MLAConfig, *, layer_idx: int) -> None:
         super().__init__()
         if isinstance(layer_idx, bool) or not isinstance(layer_idx, int) or layer_idx < 0:
@@ -140,8 +178,8 @@ class MultiHeadLatentAttention(nn.Module):
         # Linear.weight is (out_features, in_features), i.e. (H, dc+dv, r).
         w = self.kv_b_proj.weight.reshape(H, dc + dv, r)
         wk, wv = w.split((dc, dv), dim=1)
-        c = latent.squeeze(1)          # (B, Tk, r)
-        pe = k_rot.squeeze(1)         # (B, Tk, dR)
+        c = latent.squeeze(1)  # (B, Tk, r)
+        pe = k_rot.squeeze(1)  # (B, Tk, dR)
 
         # (B, H, Tq, dc) -> (B, H, Tq, r), absorb W_UK into Q.
         q_latent = torch.einsum("bhtd,hdr->bhtr", q_nope, wk)
