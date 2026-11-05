@@ -2,12 +2,17 @@ import torch
 from torch import nn
 import math
 
+from collections.abc import Mapping
+from typing import Any, Literal
+
 from transformers.cache_utils import Cache, DynamicCache
 
 from latent_forge.configs.attention import AttentionConfig
 from latent_forge.models.attention.gqa import GroupedQueryAttention
 from latent_forge.models.attention.mha import MultiHeadAttention
 from latent_forge.models.attention.rope import RotaryEmbedding
+from latent_forge.configs.mla import MLAConfig
+from latent_forge.models.attention.mla import MultiHeadLatentAttention
 
 
 class InputEmbedding(nn.Module):
@@ -128,7 +133,9 @@ class DecoderBlock(nn.Module):
         *,
         past_key_values: Cache | None = None,
         cache_position: torch.LongTensor | None = None,
-        position_embeddings: tuple[torch.Tensor, torch.Tensor] | None = None,
+        position_embeddings: tuple[
+            torch.Tensor, torch.Tensor
+        ] | None = None,
         use_cache: bool = False,
     ) -> torch.Tensor:
 
@@ -136,11 +143,10 @@ class DecoderBlock(nn.Module):
             hidden_states: torch.Tensor,
         ) -> torch.Tensor:
 
-            if isinstance(
-                self.self_attention_block,
-                GroupedQueryAttention,
-            ):
-                return self.self_attention_block(
+            attention = self.self_attention_block
+
+            if isinstance(attention, GroupedQueryAttention):
+                return attention(
                     hidden_states,
                     attention_mask=tgt_mask,
                     past_key_values=past_key_values,
@@ -149,17 +155,34 @@ class DecoderBlock(nn.Module):
                     use_cache=use_cache,
                 )
 
+            if isinstance(attention, MultiHeadLatentAttention):
+                # MLA applies its own decoupled RoPE internally.
+                if position_embeddings is not None:
+                    raise ValueError(
+                        "MLA must not receive external RoPE embeddings"
+                    )
+
+                return attention(
+                    hidden_states,
+                    attention_mask=tgt_mask,
+                    past_key_values=past_key_values,
+                    cache_position=cache_position,
+                    use_cache=use_cache,
+                )
+
+            # Legacy MHA.
             if use_cache:
                 raise NotImplementedError(
                     "Legacy MHA does not support KV caching"
                 )
 
-            return self.self_attention_block(
+            output, _ = attention(
                 hidden_states,
                 hidden_states,
                 hidden_states,
                 tgt_mask,
-            )[0]
+            )
+            return output
 
         x = self.residual_connections[0](
             x,
@@ -231,25 +254,39 @@ class ProjectionLayer(nn.Module):
 class Transformer(nn.Module):
 
     def __init__(
-            self, 
-            decoder: Decoder, 
-            tgt_embed: InputEmbedding, 
-            tgt_pos: PositionalEncoding | None, 
-            projection_layer: ProjectionLayer,
-            rotary_emb: RotaryEmbedding | None = None,
-        ) -> None:
+        self,
+        decoder: Decoder,
+        tgt_embed: InputEmbedding,
+        tgt_pos: PositionalEncoding | None,
+        projection_layer: ProjectionLayer,
+        rotary_emb: RotaryEmbedding | None = None,
+        *,
+        attention_type: Literal["mha", "gqa", "mla"] = "gqa",
+    ) -> None:
         super().__init__()
 
-        if (tgt_pos is None) == (rotary_emb is None):
-            raise ValueError(
-                "Exactly one positional encoding method is required"
-            )
-        
+        if attention_type not in ("mha", "gqa", "mla"):
+            raise ValueError("Invalid attention type")
+
+        if attention_type == "mla":
+            # MLA owns its decoupled RoPE.
+            if tgt_pos is not None or rotary_emb is not None:
+                raise ValueError(
+                    "MLA must not use external positional encoding"
+                )
+        else:
+            # Preserve existing positional-encoding behavior.
+            if (tgt_pos is None) == (rotary_emb is None):
+                raise ValueError(
+                    "Exactly one positional encoding method is required"
+                )
+
+        self.attention_type = attention_type
         self.decoder = decoder
         self.tgt_embed = tgt_embed
         self.tgt_pos = tgt_pos
-        self.projection_layer = projection_layer
         self.rotary_emb = rotary_emb
+        self.projection_layer = projection_layer
     
     
     def decode(
@@ -274,27 +311,32 @@ class Transformer(nn.Module):
             cache_position = torch.arange(
                 past_len,
                 past_len + tgt.shape[1],
-                device=tgt.device,
                 dtype=torch.long,
+                device=tgt.device,
             )
 
-        if self.rotary_emb is not None:
+        if self.attention_type == "mla":
+            # MLA computes its own RoPE using cache_position.
+            # Never add sinusoidal PE or external RoPE here.
+            position_embeddings = None
 
-            # Compute cos/sin once for the entire model forward.
+        elif self.rotary_emb is not None:
             cos, sin = self.rotary_emb(
                 hidden_states,
                 position_ids=cache_position,
             )
-
             position_embeddings = (cos, sin)
 
         else:
-            # Legacy sinusoidal positional encoding.
+            if self.tgt_pos is None:
+                raise RuntimeError(
+                    "Positional encoding was not initialized"
+                )
+
             hidden_states = self.tgt_pos(
                 hidden_states,
                 start_pos=past_len,
             )
-
             position_embeddings = None
 
         return self.decoder(
@@ -403,8 +445,6 @@ class Transformer(nn.Module):
 
         return logits
 
-
-
 def build_transformer(
     tgt_vocab_size: int,
     tgt_seq_len: int,
@@ -418,20 +458,48 @@ def build_transformer(
     position_encoding: str = "sinusoidal",
     rope_theta: float = 10000.0,
     rotary_dim: int | None = None,
+    attention_type: Literal["mha", "gqa", "mla"] | None = None,
+    mla_config: MLAConfig | None = None,
 ) -> Transformer:
 
     if N <= 0:
         raise ValueError("N must be positive")
 
     if position_encoding not in ("sinusoidal", "rope"):
-        raise ValueError(
-            "position_encoding must be 'sinusoidal' or 'rope'"
+        raise ValueError("Invalid positional encoding")
+
+    # Preserve old builder behavior.
+    if attention_type is None:
+        attention_type = (
+            "gqa" if kv_heads is not None else "mha"
         )
 
-    # Validate attention configuration first.
+    if attention_type not in ("mha", "gqa", "mla"):
+        raise ValueError("Invalid attention_type")
+
+    if attention_type != "mla" and mla_config is not None:
+        raise ValueError(
+            "mla_config is only valid for MLA models"
+        )
+
     attention_config = None
 
-    if kv_heads is not None:
+    if attention_type == "mha":
+        if kv_heads is not None:
+            raise ValueError(
+                "kv_heads must be None for legacy MHA"
+            )
+        if position_encoding != "sinusoidal":
+            raise ValueError(
+                "Legacy MHA supports sinusoidal PE only"
+            )
+
+    elif attention_type == "gqa":
+        if kv_heads is None:
+            raise ValueError(
+                "GQA requires kv_heads"
+            )
+
         attention_config = AttentionConfig(
             d_model=d_model,
             num_attention_heads=h,
@@ -440,20 +508,52 @@ def build_transformer(
             backend=attention_backend,
         )
 
-    if position_encoding == "rope" and attention_config is None:
-        raise ValueError(
-            "RoPE requires the configurable GQA module"
-        )
+    elif attention_type == "mla":
+        if mla_config is None:
+            raise ValueError(
+                "MLA requires mla_config"
+            )
 
+        if kv_heads is not None:
+            raise ValueError(
+                "kv_heads must be None for MLA"
+            )
+
+        if (
+            mla_config.hidden_size != d_model
+            or mla_config.num_attention_heads != h
+        ):
+            raise ValueError(
+                "MLA configuration must match "
+                "d_model and attention heads"
+            )
+
+        if position_encoding != "rope":
+            raise ValueError(
+                "MLA requires position_encoding='rope'"
+            )
+
+        if rotary_dim is not None:
+            raise ValueError(
+                "Use MLAConfig.qk_rope_head_dim "
+                "instead of rotary_dim"
+            )
+        
     tgt_embed = InputEmbedding(
         tgt_vocab_size,
         d_model,
     )
 
-    if position_encoding == "rope":
+    if attention_type == "mla":
+        # MLA has its own decoupled RoPE per layer.
+        tgt_pos = None
+        rotary_emb = None
+
+    elif position_encoding == "rope":
+        if rotary_dim is not None and rotary_dim % 2:
+            raise ValueError("rotary_dim must be even")
 
         tgt_pos = None
-
         rotary_emb = RotaryEmbedding(
             head_dim=attention_config.head_dim,
             theta=rope_theta,
@@ -461,7 +561,6 @@ def build_transformer(
         )
 
     else:
-
         if rotary_dim is not None:
             raise ValueError(
                 "rotary_dim is only valid with RoPE"
@@ -472,29 +571,33 @@ def build_transformer(
             tgt_seq_len,
             dropout,
         )
-
         rotary_emb = None
 
+    #Decoder layers 
     decoder_blocks = []
 
     for layer_idx in range(N):
 
-        if attention_config is None:
+        if attention_type == "mla":
+            attention = MultiHeadLatentAttention(
+                mla_config,
+                layer_idx=layer_idx,
+            )
 
+        elif attention_type == "gqa":
+            attention = GroupedQueryAttention(
+                attention_config,
+                layer_idx=layer_idx,
+            )
+
+        else:
             attention = MultiHeadAttention(
                 d_model,
                 h,
                 dropout,
             )
 
-        else:
-
-            attention = GroupedQueryAttention(
-                attention_config,
-                layer_idx=layer_idx,
-            )
-
-        feed_forward = FeedForward(
+        ffn = FeedForward(
             d_model,
             d_ff,
             dropout,
@@ -504,7 +607,7 @@ def build_transformer(
             DecoderBlock(
                 d_model,
                 attention,
-                feed_forward,
+                ffn,
                 dropout,
             )
         )
@@ -525,14 +628,14 @@ def build_transformer(
         tgt_pos=tgt_pos,
         projection_layer=projection_layer,
         rotary_emb=rotary_emb,
+        attention_type=attention_type,
     )
 
-    # Tie embedding and LM-head weights.
+    # Preserve tied embedding/LM-head weights.
     transformer.projection_layer.proj.weight = (
         transformer.tgt_embed.embedding.weight
     )
 
-    # Preserve your existing initialization strategy.
     for parameter in transformer.parameters():
         if parameter.dim() > 1:
             nn.init.xavier_uniform_(parameter)
