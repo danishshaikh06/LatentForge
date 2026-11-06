@@ -9,9 +9,12 @@ description = "A PyTorch workbench for building and exploring transformer archit
 readme = "readme.md"
 requires-python = ">=3.10"
 dependencies = [
+    "datasets>=5.0.1",
+    "huggingface-hub>=0.36.2",
     "numpy>=2.2.6",
     "pytest>=9.1.1",
     "safetensors>=0.8.0",
+    "tokenizers>=0.22.2",
     "torch==2.8.0",
     "tqdm>=4.70.1",
     "transformers==4.56.0",

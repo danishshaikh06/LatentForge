@@ -428,7 +428,7 @@ def main():
         checkpoint_path = artifacts_dir / f"model_epoch_{epoch + 1}.pt"
         torch.save(
             model.state_dict(),
-            best_model_path,
+            checkpoint_path,
         )
         print(f"Checkpoint saved to {checkpoint_path}")
 
