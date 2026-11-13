@@ -1,0 +1,12 @@
+{
+  "attention": "mqa",
+  "mode": "train",
+  "best_eval_ce": 2.8087831251323223,
+  "best_eval_ppl": 16.589718319619532,
+  "trainable_parameters": 15251840,
+  "steps": 1000,
+  "tokens_seen": 8192000,
+  "train_seconds": 412.006228400307,
+  "tokens_per_second": 19883.194561905064,
+  "run_dir": "artifacts\\tinystories\\mqa_train_seed42"
+}

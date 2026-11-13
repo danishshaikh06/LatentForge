@@ -1,0 +1,12 @@
+{
+  "attention": "mla",
+  "mode": "train",
+  "best_eval_ce": 2.7764067947864532,
+  "best_eval_ppl": 16.061205930735326,
+  "trainable_parameters": 15400832,
+  "steps": 1000,
+  "tokens_seen": 8192000,
+  "train_seconds": 466.58808700030204,
+  "tokens_per_second": 17557.242090483756,
+  "run_dir": "artifacts\\tinystories\\mla_train_seed42"
+}

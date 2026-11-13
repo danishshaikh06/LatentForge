@@ -1,0 +1,12 @@
+{
+  "attention": "gqa",
+  "mode": "train",
+  "best_eval_ce": 2.8030357137322426,
+  "best_eval_ppl": 16.494643861152458,
+  "trainable_parameters": 15546752,
+  "steps": 1000,
+  "tokens_seen": 8192000,
+  "train_seconds": 337.1359199996223,
+  "tokens_per_second": 24298.80506357548,
+  "run_dir": "artifacts\\tinystories\\gqa_train_seed42"
+}

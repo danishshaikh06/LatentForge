@@ -96,7 +96,6 @@ logs/
 tmp/
 
 # Local data and generated training artifacts
-artifacts/
 data/raw/*
 data/processed/*
 !data/raw/.gitkeep

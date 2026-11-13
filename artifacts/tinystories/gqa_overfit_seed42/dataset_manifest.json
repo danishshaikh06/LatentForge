@@ -1,0 +1,27 @@
+{
+  "dataset": "roneneldan/TinyStories",
+  "dataset_revision": "f54c09fd23315a6f9c86f9dc80f725de7d8f9c64",
+  "seed": 42,
+  "shuffle_buffer": 10000,
+  "tokenizer_training_stories": 2000,
+  "vocab_size": 4096,
+  "dtype": "uint16",
+  "pad_id": 0,
+  "bos_id": 1,
+  "eos_id": 2,
+  "tokenizer_sha256": "4064b6c1316291512ab7fa28626a8214b77201abbd6464d7b8fc4628ca58892f",
+  "train_text_sha256": "7ab028ebcc3b868dd85b5080891b034a891ad110ba16c0af9a627b2dae99ac0e",
+  "validation_text_sha256": "2087f78a271d7cb58e6acee80bc376f85e44e6f908ae20f97bef6df5cf11af39",
+  "train": {
+    "stories": 2000,
+    "tokens": 448030,
+    "average_tokens_per_story": 224.015,
+    "sha256": "91641fe15af4eaa4d546a554f7c19617ce874ee4c5d3cb36a42284973b681642"
+  },
+  "validation": {
+    "stories": 200,
+    "tokens": 41443,
+    "average_tokens_per_story": 207.215,
+    "sha256": "6b7935392daedbadf0c64e1a36fc7193d7d0fa892921e00cc59b12e936da9a6b"
+  }
+}

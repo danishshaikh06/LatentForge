@@ -1,0 +1,12 @@
+{
+  "attention": "mha",
+  "mode": "train",
+  "best_eval_ce": 2.750531829893589,
+  "best_eval_ppl": 15.65095331603556,
+  "trainable_parameters": 17316224,
+  "steps": 1000,
+  "tokens_seen": 8192000,
+  "train_seconds": 314.3390203995805,
+  "tokens_per_second": 26061.034323980904,
+  "run_dir": "artifacts\\tinystories\\mha_train_seed42"
+}

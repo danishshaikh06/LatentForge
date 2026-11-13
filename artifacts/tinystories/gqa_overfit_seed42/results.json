@@ -1,0 +1,12 @@
+{
+  "attention": "gqa",
+  "mode": "overfit",
+  "best_eval_ce": 0.002924201311543584,
+  "best_eval_ppl": 1.0029284809586987,
+  "trainable_parameters": 13969792,
+  "steps": 200,
+  "tokens_seen": 204800,
+  "train_seconds": 10.32296399999177,
+  "tokens_per_second": 19839.263219378005,
+  "run_dir": "artifacts\\tinystories\\gqa_overfit_seed42"
+}
